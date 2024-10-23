@@ -1,6 +1,7 @@
-import prestodb
 import os
 
+import pandas as pd
+import prestodb
 from dotenv import load_dotenv
 
 load_dotenv('.env')
@@ -20,10 +21,25 @@ conn = prestodb.dbapi.connect(
     auth=prestodb.auth.BasicAuthentication(PRESTO_USERNAME, PRESTO_PASSWORD)
 )
 
-# conn._http_session.verify = False
+conn._http_session.verify = False
 
-# cur = conn.cursor()
-# cur.execute('SELECT * FROM sales.public.df_comp_test101 LIMIT 10')
-# rows = cur.fetchall()
 
-# print(rows)
+# Get data from pandas.read_sql
+query = "SELECT * FROM sales.public.df_comp_test101 LIMIT 10"
+df = pd.read_sql(query, conn).to_dict(orient='records')
+
+# Transform data
+payload = []
+
+for record in df:
+    payload_record = {}
+
+    payload_record['transaction_id'] = record['oracle_bank_transactions_general_ledger_transaction_id']
+    payload_record['transaction_amount'] = record['oracle_bank_transactions_general_ledger_amt']
+    payload_record['audit_control'] = 1 if record['match_status'] == 'MATCH' else 0
+
+    payload.append(payload_record)
+
+print(payload)
+
+# Load data to API endpoint
