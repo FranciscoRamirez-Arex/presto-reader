@@ -1,24 +1,30 @@
 # main.py
-import os
+import requests 
+from config import conn
+from helpers import get_dataframe
 
-from dotenv import load_dotenv
-import pandas as pd
-from pyhive import presto
 
-load_dotenv()
+# Extract data from source
+query = "SELECT * FROM sales.public.df_comp_test101 LIMIT 10"
+df = get_dataframe(conn=conn, query=query)
 
-# Establich connection to Presto
-conn = presto.connect(
-    host=os.getenv('PRESTO_HOST'),
-    port=os.getenv('PRESTO_PORT'),
-    username=os.getenv('PRESTO_USERNAME'),
-    catalog=os.getenv('PRESTO_CATALOG'),
-    schema=os.getenv('PRESTO_SCHEMA')
-)
+# Transform data
+payload = []
 
-# Run a SQL query
-query = "SELECT * FROM table LIMIT 10"
-df = pd.read_sql(query, conn)
+for record in df:
+    payload_record = {}
 
-# Display the fetched data
-print(df)
+    payload_record['journal_transaction_id'] = record['oracle_bank_transactions_general_ledger_transaction_id']
+    payload_record['transaction_amount'] = record['oracle_bank_transactions_general_ledger_amt']
+    payload_record['audit_control'] = 1 if record['match_status'] == 'MATCH' else 0
+
+    payload.append(payload_record)
+
+# Load data to API endpoint
+url = 'http://localhost:8000/journal-records/'
+
+response = requests.post(url, json=payload)
+
+## print response status and content
+print(f"Status Code: {response.status_code}")
+print(f"Response content: {response.json()}")
