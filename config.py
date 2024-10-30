@@ -20,3 +20,6 @@ conn = prestodb.dbapi.connect(
 )
 
 conn._http_session.verify = False
+
+pg_conn_string = "postgresql+psycopg2://admin:Sandbox_2023@localhost:5432/fastapi"
+sqlserver_conn_string = "mssql+pyodbc://sa:YourStrongPassword123!@localhost:1433/contoso?driver=ODBC+Driver+17+for+SQL+Server"

@@ -1,7 +1,9 @@
 from abc import ABC, abstractmethod
-import requests
 
+import requests
 import pandas as pd
+from sqlalchemy import create_engine, text
+from sqlalchemy.exc import SQLAlchemyError
 
 
 def get_journalRecords(conn, query):
@@ -110,6 +112,76 @@ class APIPostAction(ABC):
             print("Request process ended.")
 
 
-class PokeAPI(APIPostAction):
-    def transform_data(self):
-        return "ok"
+class POSTAction(ABC):
+    def __init__(self, pg_conn_string, sqlserver_conn_string):
+        """
+        Initialize PostgreSQL and SQL Server connections using SQLAlchemy connection strings.
+
+        :param pg_conn_string: SQLAlchemy connection string for PostgreSQL.
+        :param sqlserver_conn_string: SQLAlchemy connection string for SQL Server.
+        """
+        self.pg_engine = create_engine(pg_conn_string)
+        self.sqlserver_engine = create_engine(sqlserver_conn_string)
+
+    def read_data_from_postgres(self, query):
+        """
+        Connects to PostgreSQL and reads data based on a provided query.
+        """
+        try:
+            with self.pg_engine.connect() as conn:
+                result = conn.execute(text(query))
+                data = result.fetchall()
+            return data
+        except SQLAlchemyError as e:
+            print(f"Error reading data from PostgreSQL: {e}")
+            return None
+
+    @abstractmethod
+    def transform_data(self, data):
+        """
+        Abstract method for transforming data.
+        This needs to be implemented by subclasses and return the transformed data.
+        """
+        pass
+
+    def post_data_to_sqlserver(self, table_name, data):
+        """
+        Connects to SQL Server and inserts transformed data into a specified table.
+        """
+        try:
+            with self.sqlserver_engine.connect() as conn:
+                for row in data:
+                    # Use SQLAlchemy text to safely construct the SQL statement
+                    placeholders = ", ".join([f":col{i}" for i in range(len(row))])
+                    query = text(f"INSERT INTO {table_name} VALUES ({placeholders})")
+                    params = {f"col{i}": value for i, value in enumerate(row)}
+                    conn.execute(query, **params)
+                conn.commit()
+            print("Data posted to SQL Server successfully.")
+        except SQLAlchemyError as e:
+            print(f"Error posting data to SQL Server: {e}")
+
+    def execute(self, pg_query, sqlserver_table, options:dict={}):
+        """
+        Orchestrates reading from PostgreSQL, transforming the data,
+        and posting to SQL Server.
+        """
+        data = self.read_data_from_postgres(pg_query)
+        if data is None:
+            print("No data to process.")
+            return
+        transformed_data = self.transform_data(data, options)
+        self.post_data_to_sqlserver(sqlserver_table, transformed_data)
+
+
+class MyDataTransformer(POSTAction):
+    def transform_data(self, data, options:dict={}):
+        """
+        Example transformation: Convert all text to uppercase.
+        """
+        transformed_data = [
+            tuple(str(item).upper() if isinstance(item, str) else item for item in row)
+            for row in data
+        ]
+        print(transformed_data)
+        return transformed_data
