@@ -1,9 +1,16 @@
 from abc import ABC, abstractmethod
+import logging
 
 import requests
 import pandas as pd
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
+
+
+# Setup logging
+logging.basicConfig(
+    filename="etl_process.log", level=logging.ERROR, format="%(asctime)s %(message)s"
+)
 
 
 def get_journalRecords(conn, query):
@@ -114,6 +121,7 @@ class APIPostAction(ABC):
 
 class POSTAction(ABC):
     def __init__(self, pg_conn_string, sqlserver_conn_string):
+        # TODO: rename conn strings and engines as source and destination
         """
         Initialize PostgreSQL and SQL Server connections using SQLAlchemy connection strings.
 
@@ -151,17 +159,19 @@ class POSTAction(ABC):
         try:
             with self.sqlserver_engine.connect() as conn:
                 for row in data:
-                    # Use SQLAlchemy text to safely construct the SQL statement
-                    placeholders = ", ".join([f":col{i}" for i in range(len(row))])
-                    query = text(f"INSERT INTO {table_name} VALUES ({placeholders})")
-                    params = {f"col{i}": value for i, value in enumerate(row)}
-                    conn.execute(query, **params)
+                    # Generate a query with positional parameters
+                    placeholders = ", ".join(["?" for _ in row])
+                    query = f"INSERT INTO {table_name} VALUES ({placeholders})"
+
+                    # Execute the query with the row as a tuple
+                    print("row:", row)
+                    conn.execute(text(query), tuple(row))
                 conn.commit()
             print("Data posted to SQL Server successfully.")
         except SQLAlchemyError as e:
             print(f"Error posting data to SQL Server: {e}")
 
-    def execute(self, pg_query, sqlserver_table, options:dict={}):
+    def execute(self, pg_query, sqlserver_table, options: dict = {}):
         """
         Orchestrates reading from PostgreSQL, transforming the data,
         and posting to SQL Server.
@@ -175,7 +185,7 @@ class POSTAction(ABC):
 
 
 class MyDataTransformer(POSTAction):
-    def transform_data(self, data, options:dict={}):
+    def transform_data(self, data, options: dict = {}):
         """
         Example transformation: Convert all text to uppercase.
         """
@@ -183,5 +193,84 @@ class MyDataTransformer(POSTAction):
             tuple(str(item).upper() if isinstance(item, str) else item for item in row)
             for row in data
         ]
-        print(transformed_data)
+        print("Transformed data: ", transformed_data)
         return transformed_data
+
+
+"""
+ETL Pandas ABC class
+"""
+
+
+class ETLProcess(ABC):
+    def __init__(self, source_engine, destination_engine):
+        self.source_engine = source_engine
+        self.destination_engine = destination_engine
+
+    def run(self, extract_query, destination_table, options=None):
+        """
+        Run the ETL process with a specified extract query, destination table, and options for transformation.
+        """
+        options = (
+            options or {}
+        )  # Default to an empty dictionary if no options are provided
+        try:
+            data = self.extract(extract_query)
+            transformed_data = self.transform(data, options)
+            self.load(transformed_data, destination_table)
+            print("ETL process completed successfully.")
+
+        except Exception as e:
+            logging.error(f"Error during ETL process: {e}")
+            print("ETL process failed.")
+
+    def extract(self, extract_query):
+        """Extract data from the source using the provided query."""
+        try:
+            data = pd.read_sql(extract_query, self.source_engine)
+            print("Data extracted successfully.")
+            return data
+        except Exception as e:
+            logging.error(f"Error during data extraction: {e}")
+            raise
+
+    @abstractmethod
+    def transform(self, data, options):
+        """Transform the data. This method must be implemented by subclasses."""
+        pass
+
+    def load(self, transformed_data, destination_table):
+        """Load the transformed data into the specified destination table."""
+        try:
+            transformed_data.to_sql(
+                destination_table,
+                self.destination_engine,
+                if_exists="append",
+                index=False,
+            )
+            print(f"Data loaded successfully into the table: {destination_table}.")
+        except Exception as e:
+            logging.error(f"Error during data loading: {e}")
+            raise
+
+
+# Example subclass implementing the transform method
+class CustomETL(ETLProcess):
+    def transform(self, data, options):
+        """Apply transformations to the extracted data based on options."""
+        try:
+            # Example of using options to customize transformations
+            if "rename_columns" in options:
+                for old_name, new_name in options["rename_columns"].items():
+                    data.rename(columns={old_name: new_name}, inplace=True)
+
+            if "insert_columns" in options:
+                for column, value in options['insert_columns'].items():
+                    data[column] = value
+
+            transformed_data = data
+            print("Data transformed successfully.")
+            return transformed_data
+        except Exception as e:
+            logging.error(f"Error during data transformation: {e}")
+            raise
