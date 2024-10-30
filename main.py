@@ -1,35 +1,21 @@
 # main.py
 import requests
 from config import conn, pg_conn_string, sqlserver_conn_string
-from helpers import get_journalRecords, MyDataTransformer
+from helpers import CustomETL
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 
 
-
-# Extract data from source
-# query = "SELECT * FROM sales.public.df_comp_test101 LIMIT 30"
-# payload = get_journalRecords(conn=conn, query=query)
-
-# print(payload)
-
-# # Load data to API endpoint
-# url = 'http://localhost:8000/journal-records/'
-
-# response = requests.post(url, json=payload)
-
-# ## print response status and content
-# print(f"Status Code: {response.status_code}\n\n")
-# print(f"Response content: {response.json()}")
-
 print(pg_conn_string)
-print('****')
 print(sqlserver_conn_string)
+print('****')
+print('ETL data extraction')
+print('****')
 
 pg_engine = create_engine(pg_conn_string)
 sqlserver_engine = create_engine(sqlserver_conn_string)
 query = 'SELECT name, price FROM items'
-mssql_query = 'SELECT ProductName, Price FROM Products'
+mssql_query = 'SELECT * FROM Products2'
 
 try:
     with pg_engine.connect() as conn:
@@ -40,13 +26,28 @@ except SQLAlchemyError as e:
     print(f"Error reading data from PostgreSQL: {e}")
 
 print('****')
+print('ETL class transform')
+print('****')
 
-transformer = MyDataTransformer(pg_conn_string,sqlserver_conn_string )
-transformer.execute(
-    pg_query="SELECT * FROM items",
-    sqlserver_table='Products'
-)
+# Create an instance of the CustomETL class
+etl_process = CustomETL(source_engine=pg_engine, destination_engine=sqlserver_engine)
 
+# Define the extract query, destination table, and transformation options
+extract_query = query
+destination_table = "Products2"
+options = {
+    'rename_columns': {
+        'name': 'ProductName',
+        'price': 'Price'
+        },
+    'insert_columns': {'Category':'ETL inserts'  } # Example of column insertion
+}
+
+# Run the ETL process with the specified extract query, destination table, and options
+etl_process.run(extract_query, destination_table, options)
+
+print('****')
+print('ETL load results')
 print('****')
 try:
     with sqlserver_engine.connect() as conn:
