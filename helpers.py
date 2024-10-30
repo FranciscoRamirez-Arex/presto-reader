@@ -265,7 +265,7 @@ class CustomETL(ETLProcess):
                     data.rename(columns={old_name: new_name}, inplace=True)
 
             if "insert_columns" in options:
-                for column, value in options['insert_columns'].items():
+                for column, value in options["insert_columns"].items():
                     data[column] = value
 
             transformed_data = data
